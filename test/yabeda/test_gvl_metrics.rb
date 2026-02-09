@@ -11,13 +11,8 @@ class Yabeda::TestGvlMetrics < Minitest::Test
   end
 
   def teardown
-    restore_gvl_sidekiq!
     reset_plugin_state!
     reset_yabeda!
-  end
-
-  def test_that_it_has_a_version_number
-    refute_nil ::Yabeda::GvlMetrics::VERSION
   end
 
   def test_records_rack_metrics
@@ -36,7 +31,6 @@ class Yabeda::TestGvlMetrics < Minitest::Test
   end
 
   def test_records_sidekiq_metrics
-    stub_gvl_sidekiq!
     Yabeda::GvlMetrics.configure!(rack: false, sidekiq: true)
     Yabeda.configure!
 

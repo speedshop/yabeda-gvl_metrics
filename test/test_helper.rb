@@ -2,14 +2,11 @@
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 
-require "sidekiq/version"
 require "yabeda/gvl_metrics"
 require "minitest/autorun"
 
 module YabedaGvlMetricsTestHelpers
-  def reset_yabeda!
-    Yabeda.reset!
-  end
+  def reset_yabeda! = Yabeda.reset!
 
   def reset_plugin_state!
     Yabeda::GvlMetrics.instance_variable_set(:@installed, false)

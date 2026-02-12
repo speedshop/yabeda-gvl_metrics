@@ -4,7 +4,7 @@ module Yabeda
   module GvlMetrics
     class Railtie < ::Rails::Railtie
       config.after_initialize do
-        Yabeda::GvlMetrics.configure!(rack: defined?(::Rack), sidekiq: defined?(::Sidekiq))
+        Yabeda::GvlMetrics.configure!(rack: !!defined?(::Rack), sidekiq: !!defined?(::Sidekiq))
       end
     end
   end

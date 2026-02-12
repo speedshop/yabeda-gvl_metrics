@@ -13,7 +13,7 @@ module Yabeda
     METRIC_TAGS = [:source].freeze
 
     class << self
-      def configure!(rack: true, sidekiq: true)
+      def configure!(rack: defined?(::Rack), sidekiq: defined?(::Sidekiq))
         return if @installed
 
         define_metrics

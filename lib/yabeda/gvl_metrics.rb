@@ -59,11 +59,7 @@ module Yabeda
       end
 
       def record_rack(total, running, io_wait, gvl_wait)
-        # Rack jobs have no queue or job class, but the tags are still set (to an
-        # empty string) so that every series of a metric shares the same label set.
-        tags = { source: "rack", hostname: hostname, pid: ::Process.pid, queue: "", job_class: "" }
-
-        write_metrics(tags, total, running, io_wait, gvl_wait)
+        write_metrics({ source: "rack", hostname: hostname, pid: ::Process.pid }, total, running, io_wait, gvl_wait)
       end
 
       def record_sidekiq(total, running, io_wait, gvl_wait, queue: nil, job_class: nil)
@@ -79,6 +75,12 @@ module Yabeda
       end
 
       def write_metrics(tags, total, running, io_wait, gvl_wait)
+        # Every gauge is declared with the full METRIC_TAGS set, and exporters such
+        # as yabeda-prometheus reject a write that omits any declared tag. Default
+        # the tags a source does not set (queue/job_class for Rack) to an empty
+        # string so callers don't have to spell them out.
+        tags = { queue: "", job_class: "" }.merge(tags)
+
         Yabeda.gvl_metrics.total.set(tags, total)
         Yabeda.gvl_metrics.running.set(tags, running)
         Yabeda.gvl_metrics.io_wait.set(tags, io_wait)

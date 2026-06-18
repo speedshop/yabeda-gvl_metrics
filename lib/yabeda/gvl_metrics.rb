@@ -41,7 +41,7 @@ module Yabeda
         GvlMetricsMiddleware.configure do |config|
           if rack
             config.rack do |total, running, io_wait, gvl_wait|
-              record("rack", total, running, io_wait, gvl_wait)
+              record_rack(total, running, io_wait, gvl_wait)
             end
           end
 
@@ -52,21 +52,33 @@ module Yabeda
             # defaults so this stays compatible with any middleware version that
             # does not send them.
             config.sidekiq do |total, running, io_wait, gvl_wait, queue: nil, job_class: nil|
-              record("sidekiq", total, running, io_wait, gvl_wait, queue: queue, job_class: job_class)
+              record_sidekiq(total, running, io_wait, gvl_wait, queue: queue, job_class: job_class)
             end
           end
         end
       end
 
-      def record(source, total, running, io_wait, gvl_wait, queue: nil, job_class: nil)
+      def record_rack(total, running, io_wait, gvl_wait)
+        # Rack jobs have no queue or job class, but the tags are still set (to an
+        # empty string) so that every series of a metric shares the same label set.
+        tags = { source: "rack", hostname: hostname, pid: ::Process.pid, queue: "", job_class: "" }
+
+        write_metrics(tags, total, running, io_wait, gvl_wait)
+      end
+
+      def record_sidekiq(total, running, io_wait, gvl_wait, queue: nil, job_class: nil)
         tags = {
-          source: source,
+          source: "sidekiq",
           hostname: hostname,
           pid: ::Process.pid,
           queue: queue.to_s,
           job_class: job_class.to_s,
         }
 
+        write_metrics(tags, total, running, io_wait, gvl_wait)
+      end
+
+      def write_metrics(tags, total, running, io_wait, gvl_wait)
         Yabeda.gvl_metrics.total.set(tags, total)
         Yabeda.gvl_metrics.running.set(tags, running)
         Yabeda.gvl_metrics.io_wait.set(tags, io_wait)

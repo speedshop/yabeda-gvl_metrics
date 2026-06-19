@@ -116,8 +116,47 @@ class Yabeda::TestGvlMetrics < Minitest::Test
     Yabeda::GvlMetrics.configure!
     Yabeda.configure!
 
-    assert_equal %i[hostname pid], Yabeda.rack_gvl_metrics.total.tags
+    assert_equal %i[hostname pid route], Yabeda.rack_gvl_metrics.total.tags
     assert_equal %i[hostname pid queue job_class], Yabeda.sidekiq_gvl_metrics.total.tags
+  end
+
+  def test_rack_route_is_recorded_from_the_reporter_keyword
+    ensure_rack_loaded!
+
+    Yabeda::GvlMetrics.configure!(rack: true, sidekiq: false)
+    Yabeda.configure!
+
+    reporter = GvlMetricsMiddleware.rack
+    # gvl_metrics_middleware resolves the route and passes it as a keyword.
+    reporter.call(10, 7, 2, 1, route: "admin/users#index")
+
+    assert_equal 10, Yabeda.rack_gvl_metrics.total.get(rack_gvl_tags(route: "admin/users#index"))
+  end
+
+  def test_rack_route_falls_back_to_unknown_without_a_route_keyword
+    ensure_rack_loaded!
+
+    Yabeda::GvlMetrics.configure!(rack: true, sidekiq: false)
+    Yabeda.configure!
+
+    reporter = GvlMetricsMiddleware.rack
+    # Older gvl_metrics_middleware calls the reporter without a route keyword.
+    reporter.call(10, 7, 2, 1)
+
+    assert_equal 10, Yabeda.rack_gvl_metrics.total.get(rack_gvl_tags(route: "unknown"))
+  end
+
+  def test_rack_route_falls_back_to_unknown_when_route_is_nil
+    ensure_rack_loaded!
+
+    Yabeda::GvlMetrics.configure!(rack: true, sidekiq: false)
+    Yabeda.configure!
+
+    reporter = GvlMetricsMiddleware.rack
+    # The middleware passes route: nil when no route matched (404s, plain Rack).
+    reporter.call(10, 7, 2, 1, route: nil)
+
+    assert_equal 10, Yabeda.rack_gvl_metrics.total.get(rack_gvl_tags(route: "unknown"))
   end
 
   def test_rack_only_configure_defines_only_the_rack_group

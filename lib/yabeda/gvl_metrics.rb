@@ -15,11 +15,11 @@ module Yabeda
     SIDEKIQ_GROUP = :sidekiq_gvl_metrics
 
     # Rack and Sidekiq each get their own group so a group only declares the tags
-    # that make sense for it. Rack has no notion of a queue or job class, so those
-    # tags live on the Sidekiq group alone rather than being recorded empty for
-    # Rack. The group name already tells the two sources apart, so there is no
-    # separate +source+ tag.
-    RACK_TAGS = %i[hostname pid].freeze
+    # that make sense for it. Rack carries +route+ (the request's controller#action
+    # on Rails, or the matched route template on Sinatra); Sidekiq carries +queue+
+    # and +job_class+. The group name already tells the two sources apart, so there
+    # is no separate +source+ tag.
+    RACK_TAGS = %i[hostname pid route].freeze
     SIDEKIQ_TAGS = %i[hostname pid queue job_class].freeze
 
     class << self
@@ -59,8 +59,12 @@ module Yabeda
       def hook_middleware(rack:, sidekiq:)
         GvlMetricsMiddleware.configure do |config|
           if rack
-            config.rack do |total, running, io_wait, gvl_wait|
-              record_rack(total, running, io_wait, gvl_wait)
+            # gvl_metrics_middleware resolves the request's route and passes it to
+            # this callback (as a keyword) starting in the version that added it;
+            # +route: nil+ keeps us working against older versions, where it simply
+            # falls back to "unknown".
+            config.rack do |total, running, io_wait, gvl_wait, route: nil|
+              record_rack(total, running, io_wait, gvl_wait, route: route)
             end
           end
 
@@ -77,8 +81,11 @@ module Yabeda
         end
       end
 
-      def record_rack(total, running, io_wait, gvl_wait)
-        tags = { hostname: hostname, pid: ::Process.pid }
+      def record_rack(total, running, io_wait, gvl_wait, route: nil)
+        # gvl_metrics_middleware resolves the route (Rails controller#action or the
+        # Sinatra route) and passes it in. It is nil on older middleware or when no
+        # route matched, in which case we record a fixed "unknown" bucket.
+        tags = { hostname: hostname, pid: ::Process.pid, route: route || "unknown" }
 
         write_metrics(Yabeda.rack_gvl_metrics, tags, total, running, io_wait, gvl_wait)
       end

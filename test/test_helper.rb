@@ -17,8 +17,8 @@ module YabedaGvlMetricsTestHelpers
 
   # The tag sets each group records with, built the same way the plugin builds
   # them so the lookup matches regardless of the host running the tests.
-  def rack_gvl_tags
-    { hostname: ENV["DYNO"] || Socket.gethostname, pid: Process.pid }
+  def rack_gvl_tags(route: "unknown")
+    { hostname: ENV["DYNO"] || Socket.gethostname, pid: Process.pid, route: route }
   end
 
   def sidekiq_gvl_tags(queue: "", job_class: "")

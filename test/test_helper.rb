@@ -15,11 +15,14 @@ module YabedaGvlMetricsTestHelpers
     GvlMetricsMiddleware::Sidekiq.reporter = nil  if defined?(GvlMetricsMiddleware::Sidekiq)
   end
 
-  # The full tag set every gauge is recorded with. Built the same way the plugin
-  # builds it, so the lookup matches regardless of the host running the tests.
-  def gvl_tags(source:, queue: "", job_class: "")
+  # The tag sets each group records with, built the same way the plugin builds
+  # them so the lookup matches regardless of the host running the tests.
+  def rack_gvl_tags
+    { hostname: ENV["DYNO"] || Socket.gethostname, pid: Process.pid }
+  end
+
+  def sidekiq_gvl_tags(queue: "", job_class: "")
     {
-      source: source,
       hostname: ENV["DYNO"] || Socket.gethostname,
       pid: Process.pid,
       queue: queue,

@@ -11,14 +11,22 @@ module Yabeda
   module GvlMetrics
     class Error < StandardError; end
 
-    METRIC_GROUP = :gvl_metrics
-    METRIC_TAGS = %i[source hostname pid queue job_class].freeze
+    RACK_GROUP = :rack_gvl_metrics
+    SIDEKIQ_GROUP = :sidekiq_gvl_metrics
+
+    # Rack and Sidekiq each get their own group so a group only declares the tags
+    # that make sense for it. Rack has no notion of a queue or job class, so those
+    # tags live on the Sidekiq group alone rather than being recorded empty for
+    # Rack. The group name already tells the two sources apart, so there is no
+    # separate +source+ tag.
+    RACK_TAGS = %i[hostname pid].freeze
+    SIDEKIQ_TAGS = %i[hostname pid queue job_class].freeze
 
     class << self
       def configure!(rack: defined?(::Rack), sidekiq: defined?(::Sidekiq))
         return if @installed
 
-        define_metrics
+        define_metrics(rack: rack, sidekiq: sidekiq)
         hook_middleware(rack: rack, sidekiq: sidekiq)
 
         @installed = true
@@ -26,13 +34,24 @@ module Yabeda
 
       private
 
-      def define_metrics
+      def define_metrics(rack:, sidekiq:)
         Yabeda.configure do
-          group METRIC_GROUP do
-            gauge :total, tags: METRIC_TAGS, comment: "Total time in nanoseconds (running + io_wait + gvl_wait)."
-            gauge :running, tags: METRIC_TAGS, comment: "Time in nanoseconds spent running Ruby code."
-            gauge :io_wait, tags: METRIC_TAGS, comment: "Time in nanoseconds spent waiting on IO."
-            gauge :gvl_wait, tags: METRIC_TAGS, comment: "Time in nanoseconds spent waiting on the GVL."
+          if rack
+            group RACK_GROUP do
+              gauge :total, tags: RACK_TAGS, comment: "Total time in nanoseconds (running + io_wait + gvl_wait)."
+              gauge :running, tags: RACK_TAGS, comment: "Time in nanoseconds spent running Ruby code."
+              gauge :io_wait, tags: RACK_TAGS, comment: "Time in nanoseconds spent waiting on IO."
+              gauge :gvl_wait, tags: RACK_TAGS, comment: "Time in nanoseconds spent waiting on the GVL."
+            end
+          end
+
+          if sidekiq
+            group SIDEKIQ_GROUP do
+              gauge :total, tags: SIDEKIQ_TAGS, comment: "Total time in nanoseconds (running + io_wait + gvl_wait)."
+              gauge :running, tags: SIDEKIQ_TAGS, comment: "Time in nanoseconds spent running Ruby code."
+              gauge :io_wait, tags: SIDEKIQ_TAGS, comment: "Time in nanoseconds spent waiting on IO."
+              gauge :gvl_wait, tags: SIDEKIQ_TAGS, comment: "Time in nanoseconds spent waiting on the GVL."
+            end
           end
         end
       end
@@ -59,32 +78,22 @@ module Yabeda
       end
 
       def record_rack(total, running, io_wait, gvl_wait)
-        write_metrics({ source: "rack", hostname: hostname, pid: ::Process.pid }, total, running, io_wait, gvl_wait)
+        tags = { hostname: hostname, pid: ::Process.pid }
+
+        write_metrics(Yabeda.rack_gvl_metrics, tags, total, running, io_wait, gvl_wait)
       end
 
       def record_sidekiq(total, running, io_wait, gvl_wait, queue: nil, job_class: nil)
-        tags = {
-          source: "sidekiq",
-          hostname: hostname,
-          pid: ::Process.pid,
-          queue: queue.to_s,
-          job_class: job_class.to_s,
-        }
+        tags = { hostname: hostname, pid: ::Process.pid, queue: queue.to_s, job_class: job_class.to_s }
 
-        write_metrics(tags, total, running, io_wait, gvl_wait)
+        write_metrics(Yabeda.sidekiq_gvl_metrics, tags, total, running, io_wait, gvl_wait)
       end
 
-      def write_metrics(tags, total, running, io_wait, gvl_wait)
-        # Every gauge is declared with the full METRIC_TAGS set, and exporters such
-        # as yabeda-prometheus reject a write that omits any declared tag. Default
-        # the tags a source does not set (queue/job_class for Rack) to an empty
-        # string so callers don't have to spell them out.
-        tags = { queue: "", job_class: "" }.merge(tags)
-
-        Yabeda.gvl_metrics.total.set(tags, total)
-        Yabeda.gvl_metrics.running.set(tags, running)
-        Yabeda.gvl_metrics.io_wait.set(tags, io_wait)
-        Yabeda.gvl_metrics.gvl_wait.set(tags, gvl_wait)
+      def write_metrics(group, tags, total, running, io_wait, gvl_wait)
+        group.total.set(tags, total)
+        group.running.set(tags, running)
+        group.io_wait.set(tags, io_wait)
+        group.gvl_wait.set(tags, gvl_wait)
       end
 
       # The host name does not change across a fork, so memoizing it (even if the

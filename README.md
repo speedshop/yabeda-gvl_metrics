@@ -5,7 +5,7 @@ Yabeda plugin for exporting GVL metrics collected by [`gvl_metrics_middleware`](
 ## Requirements
 
 - Ruby >= 3.2.0
-- [`gvl_metrics_middleware`](https://github.com/speedshop/gvl_metrics_middleware) >= 0.3.0
+- [`gvl_metrics_middleware`](https://github.com/speedshop/gvl_metrics_middleware) >= 0.4.0
 - [`yabeda`](https://github.com/yabeda-rb/yabeda) >= 0.6
 
 ## Installation
@@ -53,7 +53,7 @@ For metric definitions, see: https://github.com/speedshop/gvl_metrics_middleware
 | `rack_gvl_metrics_io_wait` | Time spent waiting on IO |
 | `rack_gvl_metrics_gvl_wait` | Time spent waiting on the GVL |
 
-Tags: `hostname`, `pid`.
+Tags: `hostname`, `pid`, `route`.
 
 ### Sidekiq — group `sidekiq_gvl_metrics`
 
@@ -74,12 +74,13 @@ These let you attribute GVL time to a specific process and, for Sidekiq, to the 
 |-----|------------|-------------|
 | `hostname` | Rack, Sidekiq | Host the process runs on (`ENV["DYNO"]` if set, otherwise `Socket.gethostname` — the same value Sidekiq reports for itself) |
 | `pid` | Rack, Sidekiq | Process ID. Read fresh on every measurement, so it stays correct under forking servers (e.g. Puma in cluster mode) |
+| `route` | Rack | The request's route template — Rails `controller#action` (e.g. `users#show`, `admin/users#index`) or the matched Sinatra route (e.g. `GET /users/:id`), as resolved by `gvl_metrics_middleware`. This lets you compare the CPU/IO ratio per action. Falls back to `"unknown"` when no route matched (404s, non-Rails/Sinatra Rack apps). |
 | `queue` | Sidekiq | The queue the job was pulled from |
 | `job_class` | Sidekiq | The job's class name |
 
-The `hostname`, `pid`, `queue`, and `job_class` values are read locally from within the running process and from the data `gvl_metrics_middleware` already passes to the callback — there is no `Sidekiq::ProcessSet`/Redis lookup involved.
+The `hostname`, `pid`, `queue`, and `job_class` values are read locally from within the running process and from the data `gvl_metrics_middleware` already passes to the callback — there is no `Sidekiq::ProcessSet`/Redis lookup involved. `route` is the request's resolved route *template* (the matched controller#action or route pattern), never the raw path, so it stays bounded by the number of routes rather than growing with every distinct URL.
 
-> **Cardinality:** on the Sidekiq metrics, `queue` and especially `job_class` multiply the number of time series per process (one series per `queue`/`job_class` combination), and `pid` produces a new series for every restart or redeploy. On apps with many job classes this can add up — keep an eye on your metrics backend's cardinality.
+> **Cardinality:** on the Rack metrics, `route` adds one series per route template per process; on the Sidekiq metrics, `queue` and especially `job_class` multiply series the same way. Across both, `pid` produces a new series for every restart or redeploy. Route templates and job classes are bounded by your app, but on apps with many of them this can add up — keep an eye on your metrics backend's cardinality.
 
 ## Contributing
 

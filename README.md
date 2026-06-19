@@ -40,16 +40,32 @@ For non-Rails applications, call `configure!` directly after requiring the gem.
 
 ## Metrics
 
-All metrics are registered as Yabeda gauges in the `gvl_metrics` group with a `source` tag, reported in nanoseconds. Each gauge holds the value from the most recent request or job.
+All metrics are registered as Yabeda gauges in the `gvl_metrics` group, reported in nanoseconds. Each gauge holds the value from the most recent request or job for a given set of tags.
 
 For metric definitions, see: https://github.com/speedshop/gvl_metrics_middleware?tab=readme-ov-file#available-metrics
 
-| Metric | Tag | Description |
-|--------|-----|-------------|
-| `gvl_metrics_total` | `source: "rack"` or `source: "sidekiq"` | Total time (running + io_wait + gvl_wait) |
-| `gvl_metrics_running` | `source: "rack"` or `source: "sidekiq"` | Time spent running Ruby code |
-| `gvl_metrics_io_wait` | `source: "rack"` or `source: "sidekiq"` | Time spent waiting on IO |
-| `gvl_metrics_gvl_wait` | `source: "rack"` or `source: "sidekiq"` | Time spent waiting on the GVL |
+| Metric | Description |
+|--------|-------------|
+| `gvl_metrics_total` | Total time (running + io_wait + gvl_wait) |
+| `gvl_metrics_running` | Time spent running Ruby code |
+| `gvl_metrics_io_wait` | Time spent waiting on IO |
+| `gvl_metrics_gvl_wait` | Time spent waiting on the GVL |
+
+### Tags
+
+Every metric carries the following tags, so you can attribute GVL time to a specific process and, for Sidekiq, to the job that ran:
+
+| Tag | Description |
+|-----|-------------|
+| `source` | `"rack"` or `"sidekiq"` |
+| `hostname` | Host the process runs on (`ENV["DYNO"]` if set, otherwise `Socket.gethostname` — the same value Sidekiq reports for itself) |
+| `pid` | Process ID. Read fresh on every measurement, so it stays correct under forking servers (e.g. Puma in cluster mode) |
+| `queue` | Sidekiq only: the queue the job was pulled from. Empty for Rack. |
+| `job_class` | Sidekiq only: the job's class name. Empty for Rack. |
+
+The `hostname`, `pid`, `queue`, and `job_class` values are read locally from within the running process and from the data `gvl_metrics_middleware` already passes to the callback — there is no `Sidekiq::ProcessSet`/Redis lookup involved.
+
+> **Cardinality:** `queue` and especially `job_class` multiply the number of time series per process (one series per `source`/`queue`/`job_class` combination), and `pid` produces a new series for every restart or redeploy. On apps with many job classes this can add up — keep an eye on your metrics backend's cardinality.
 
 ## Contributing
 

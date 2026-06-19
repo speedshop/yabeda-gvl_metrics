@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "socket"
+
 require "yabeda"
 require "gvl_metrics_middleware"
 
@@ -10,7 +12,7 @@ module Yabeda
     class Error < StandardError; end
 
     METRIC_GROUP = :gvl_metrics
-    METRIC_TAGS = [:source].freeze
+    METRIC_TAGS = %i[source hostname pid queue job_class].freeze
 
     class << self
       def configure!(rack: defined?(::Rack), sidekiq: defined?(::Sidekiq))
@@ -39,25 +41,59 @@ module Yabeda
         GvlMetricsMiddleware.configure do |config|
           if rack
             config.rack do |total, running, io_wait, gvl_wait|
-              record("rack", total, running, io_wait, gvl_wait)
+              record_rack(total, running, io_wait, gvl_wait)
             end
           end
 
           if sidekiq
-            config.sidekiq do |total, running, io_wait, gvl_wait|
-              record("sidekiq", total, running, io_wait, gvl_wait)
+            # gvl_metrics_middleware already hands the current job's queue and
+            # class to the callback as keyword arguments, so we can segment by
+            # them without any Sidekiq::ProcessSet/Redis lookup. They are given
+            # defaults so this stays compatible with any middleware version that
+            # does not send them.
+            config.sidekiq do |total, running, io_wait, gvl_wait, queue: nil, job_class: nil|
+              record_sidekiq(total, running, io_wait, gvl_wait, queue: queue, job_class: job_class)
             end
           end
         end
       end
 
-      def record(source, total, running, io_wait, gvl_wait)
-        tags = { source: source }
+      def record_rack(total, running, io_wait, gvl_wait)
+        write_metrics({ source: "rack", hostname: hostname, pid: ::Process.pid }, total, running, io_wait, gvl_wait)
+      end
+
+      def record_sidekiq(total, running, io_wait, gvl_wait, queue: nil, job_class: nil)
+        tags = {
+          source: "sidekiq",
+          hostname: hostname,
+          pid: ::Process.pid,
+          queue: queue.to_s,
+          job_class: job_class.to_s,
+        }
+
+        write_metrics(tags, total, running, io_wait, gvl_wait)
+      end
+
+      def write_metrics(tags, total, running, io_wait, gvl_wait)
+        # Every gauge is declared with the full METRIC_TAGS set, and exporters such
+        # as yabeda-prometheus reject a write that omits any declared tag. Default
+        # the tags a source does not set (queue/job_class for Rack) to an empty
+        # string so callers don't have to spell them out.
+        tags = { queue: "", job_class: "" }.merge(tags)
 
         Yabeda.gvl_metrics.total.set(tags, total)
         Yabeda.gvl_metrics.running.set(tags, running)
         Yabeda.gvl_metrics.io_wait.set(tags, io_wait)
         Yabeda.gvl_metrics.gvl_wait.set(tags, gvl_wait)
+      end
+
+      # The host name does not change across a fork, so memoizing it (even if the
+      # value is inherited by a forked worker) is safe. The pid, which does change
+      # on fork, is read fresh on every call instead, so it stays correct under
+      # forking servers such as Puma in cluster mode. This mirrors how Sidekiq
+      # itself derives its hostname.
+      def hostname
+        @hostname ||= ENV["DYNO"] || Socket.gethostname
       end
     end
   end

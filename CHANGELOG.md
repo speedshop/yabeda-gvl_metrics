@@ -2,7 +2,7 @@
 
 ### Added
 
-- `route` tag on the Rack GVL metrics, identifying the request's route template — Rails `controller#action` or the matched Sinatra route — as resolved and provided by `gvl_metrics_middleware`. This lets you compare the CPU/IO ratio per action. Only the bounded route template is used (never the raw path), and it falls back to `"unknown"` for unmatched requests. Requires a `gvl_metrics_middleware` version that provides the route to the reporter callback; against older versions `route` is always `"unknown"`.
+- `route` tag on the Rack GVL metrics, identifying the request's route template — Rails `controller#action` or the matched Sinatra route — as resolved and provided by `gvl_metrics_middleware`. This lets you compare the CPU/IO ratio per action. Only the bounded route template is used (never the raw path), and it falls back to `"unknown"` for unmatched requests. Requires `gvl_metrics_middleware` >= 0.4.0.
 
 ### Changed
 
